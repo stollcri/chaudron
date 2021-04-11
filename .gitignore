@@ -1,0 +1,14 @@
+wip-img/a/*
+!wip-img/a/.gitkeep
+
+wip-img/b/*
+!wip-img/b/.gitkeep
+
+wip-img/c/*
+!wip-img/c/.gitkeep
+
+wip-img/d/*
+!wip-img/d/.gitkeep
+
+wip-img/e/*
+!wip-img/e/.gitkeep
