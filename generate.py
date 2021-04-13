@@ -23,137 +23,94 @@ mpl.rcParams['axes.grid'] = False
 
 class Chaudron(object):
   def __init__(self):
-    # tf.compat.v1.disable_eager_execution()
-    print("Eager execution: {}".format(tf.executing_eagerly()))
+    self.image_size = 512
     
     # Content layer where will pull our feature maps
     self.content_layers = ['block5_conv2'] 
-    
-    # Style layer we are interested in
-    self.style_layers = ['block1_conv1',
-                    'block2_conv1',
-                    'block3_conv1', 
-                    'block4_conv1', 
-                    'block5_conv1'
-                   ]
-    
     self.num_content_layers = len(self.content_layers)
+    # Style layer we are interested in
+    self.style_layers = ['block1_conv1', 'block2_conv1', 'block3_conv1', 'block4_conv1', 'block5_conv1']
     self.num_style_layers = len(self.style_layers)
+    
+    # tf.compat.v1.disable_eager_execution()
+    logging.info("Eager execution: {}".format(tf.executing_eagerly()))
   
-  def load_img(self, path_to_img):
-    max_dim = 512
-    img = Image.open(path_to_img)
-    long = max(img.size)
-    scale = max_dim/long
-    img = img.resize((round(img.size[0]*scale), round(img.size[1]*scale)), Image.ANTIALIAS)
+  def load_image_file(self, image_file_name):
+    image = Image.open(image_file_name)
+    scale = self.image_size / max(image.size)
+    image = image.resize((round(image.size[0]*scale), round(image.size[1]*scale)), Image.ANTIALIAS)
+    image = kp_image.img_to_array(image)
+    # broadcast the image array so it has a batch dimension 
+    image = np.expand_dims(image, axis=0)
+    return image
     
-    img = kp_image.img_to_array(img)
-    
-    # We need to broadcast the image array such that it has a batch dimension 
-    img = np.expand_dims(img, axis=0)
-    return img
-    
-  def imshow(self, img, title=None):
-    # Remove the batch dimension
-    out = np.squeeze(img, axis=0)
-    # Normalize for display 
-    out = out.astype('uint8')
-    plt.imshow(out)
-    if title is not None:
-      plt.title(title)
-    plt.imshow(out)
+  # def image_show(self, image, title=None):
+  #   # Remove the batch dimension
+  #   out = np.squeeze(image, axis=0)
+  #   # Normalize for display 
+  #   out = out.astype('uint8')
+  #   plt.imshow(out)
+  #   if title is not None:
+  #     plt.title(title)
+  #   plt.imshow(out)
   
-  def load_and_process_img(self, path_to_img):
-    img = self.load_img(path_to_img)
+  def load_image(self, image_file_name):
+    img = self.load_image_file(image_file_name)
     img = tf.keras.applications.vgg19.preprocess_input(img)
     return img
   
-  def deprocess_img(self, processed_img):
-    x = processed_img.copy()
-    if len(x.shape) == 4:
-      x = np.squeeze(x, 0)
-    assert len(x.shape) == 3, ("Input to deprocess image must be an image of "
-                               "dimension [1, height, width, channel] or [height, width, channel]")
-    if len(x.shape) != 3:
+  def postprocess_image(self, processed_image):
+    image = processed_image.copy()
+    
+    if len(image.shape) == 4:
+      image = np.squeeze(image, 0)
+
+    if len(image.shape) != 3:
+      logging.error("Image must dimensionality must be [1, height, width, channel] or [height, width, channel]")
       raise ValueError("Invalid input to deprocessing image")
     
     # perform the inverse of the preprocessing step
-    x[:, :, 0] += 103.939
-    x[:, :, 1] += 116.779
-    x[:, :, 2] += 123.68
-    x = x[:, :, ::-1]
-  
-    x = np.clip(x, 0, 255).astype('uint8')
-    return x
-  
-  def get_model(self):
-    """ Creates our model with access to intermediate layers. 
+    image[:, :, 0] += 103.939
+    image[:, :, 1] += 116.779
+    image[:, :, 2] += 123.68
+    image = image[:, :, ::-1]
+    image = np.clip(image, 0, 255).astype('uint8')
     
-    This function will load the VGG19 model and access the intermediate layers. 
-    These layers will then be used to create a new model that will take input image
-    and return the outputs from these intermediate layers from the VGG model. 
-    
-    Returns:
-      returns a keras model that takes image inputs and outputs the style and 
-        content intermediate layers. 
-    """
-    # Load our model. We load pretrained VGG, trained on imagenet data
+    return image
+  
+  def load_model(self):
+    # Load VGG pretrained imagenet data
     vgg = tf.keras.applications.vgg19.VGG19(include_top=False, weights='imagenet')
     vgg.trainable = False
     # Get output layers corresponding to style and content layers 
     style_outputs = [vgg.get_layer(name).output for name in self.style_layers]
     content_outputs = [vgg.get_layer(name).output for name in self.content_layers]
     model_outputs = style_outputs + content_outputs
-    # Build model 
     return models.Model(vgg.input, model_outputs)
   
   def get_content_loss(self, base_content, target):
     return tf.reduce_mean(tf.square(base_content - target))
-    
+  
   def gram_matrix(self, input_tensor):
-    # We make the image channels first 
     channels = int(input_tensor.shape[-1])
     a = tf.reshape(input_tensor, [-1, channels])
     n = tf.shape(a)[0]
     gram = tf.matmul(a, a, transpose_a=True)
     return gram / tf.cast(n, tf.float32)
-  
+
   def get_style_loss(self, base_style, gram_target):
-    """Expects two images of dimension h, w, c"""
-    # height, width, num filters of each layer
-    # We scale the loss at a given layer by the size of the feature map and the number of filters
-    height, width, channels = base_style.get_shape().as_list()
     gram_style = self.gram_matrix(base_style)
-    
-    return tf.reduce_mean(tf.square(gram_style - gram_target))# / (4. * (channels ** 2) * (width * height) ** 2)
-    
+    return tf.reduce_mean(tf.square(gram_style - gram_target))
+
   def get_feature_representations(self, model, content_path, style_path):
-    """Helper function to compute our content and style feature representations.
-  
-    This function will simply load and preprocess both the content and style 
-    images from their path. Then it will feed them through the network to obtain
-    the outputs of the intermediate layers. 
-    
-    Arguments:
-      model: The model that we are using.
-      content_path: The path to the content image.
-      style_path: The path to the style image
-      
-    Returns:
-      returns the style features and the content features. 
-    """
-    # Load our images in 
-    content_image = self.load_and_process_img(content_path)
-    style_image = self.load_and_process_img(style_path)
-    
-    # batch compute content and style features
-    style_outputs = model(style_image)
+    content_image = self.load_image(content_path)
     content_outputs = model(content_image)
-    
-    
-    # Get the style and content feature representations from our model  
-    style_features = [style_layer[0] for style_layer in style_outputs[:self.num_style_layers]]
     content_features = [content_layer[0] for content_layer in content_outputs[self.num_style_layers:]]
+    
+    style_image = self.load_image(style_path)
+    style_outputs = model(style_image)
+    style_features = [style_layer[0] for style_layer in style_outputs[:self.num_style_layers]]
+    
     return style_features, content_features
   
   def compute_loss(self, model, loss_weights, init_image, gram_style_features, content_features):
@@ -214,13 +171,14 @@ class Chaudron(object):
       
   def run_style_transfer(self, content_path, 
                          style_path,
-                         folder='wip',
+                         folder='wip-img',
                          num_iterations=50000,
                          content_weight=1e3, 
                          style_weight=1e-2): 
-    # We don't need to (or want to) train any layers of our model, so we set their
-    # trainable to false. 
-    model = self.get_model()
+    model = self.load_model()
+    print("===== ===== ===== ===== =====")
+    print(model.summary())
+    print("===== ===== ===== ===== =====")
     for layer in model.layers:
       layer.trainable = False
     
@@ -229,7 +187,7 @@ class Chaudron(object):
     gram_style_features = [self.gram_matrix(style_feature) for style_feature in style_features]
     
     # Set initial image
-    init_image = self.load_and_process_img(content_path)
+    init_image = self.load_image(content_path)
     init_image = tf.Variable(init_image, dtype=tf.float32)
     # Create our optimizer
     # opt = tf.train.AdamOptimizer(learning_rate=5, beta1=0.99, epsilon=1e-1)
@@ -274,14 +232,14 @@ class Chaudron(object):
       if loss < best_loss:
         # Update best loss and best image from total loss. 
         best_loss = loss
-        best_img = self.deprocess_img(init_image.numpy())
+        best_img = self.postprocess_image(init_image.numpy())
   
       if i % display_interval== 0:
         start_time = time.time()
         
         # Use the .numpy() method to get the concrete numpy array
         plot_img = init_image.numpy()
-        plot_img = self.deprocess_img(plot_img)
+        plot_img = self.postprocess_image(plot_img)
         imgs.append(plot_img)
         img = Image.fromarray(plot_img)
         img.save(f"{folder}/i{i:05d}-l{loss:4.2f}-sl{style_score:4.2f}-cl{content_score:4.2f}.png")
