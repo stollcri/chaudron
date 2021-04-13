@@ -1,3 +1,5 @@
+wip-img/**
+
 wip-img/a/*
 !wip-img/a/.gitkeep
 
@@ -12,3 +14,6 @@ wip-img/d/*
 
 wip-img/e/*
 !wip-img/e/.gitkeep
+
+wip-img/f/*
+!wip-img/f/.gitkeep
