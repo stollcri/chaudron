@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""
+Based upon:
+A Neural Algorithm of Artistic Style
+Leon A. Gatys; Alexander S. Ecker; Matthias Bethge
+https://arxiv.org/pdf/1508.06576.pdf
+
+Variation in Python
+Copyright © 2021 Christopher Stoll
+"""
+
 import argparse
 import functools
 import logging
@@ -28,8 +38,10 @@ class Chaudron(object):
     # Content layer where will pull our feature maps
     self.content_layers = ['block5_conv2'] 
     self.num_content_layers = len(self.content_layers)
+    
     # Style layer we are interested in
-    self.style_layers = ['block1_conv1', 'block2_conv1', 'block3_conv1', 'block4_conv1', 'block5_conv1']
+    # self.style_layers = ['block1_conv1', 'block2_conv1', 'block3_conv1', 'block4_conv1', 'block5_conv1']
+    self.style_layers = ['block1_conv2', 'block2_conv2', 'block3_conv4', 'block4_conv4', 'block5_conv1']
     self.num_style_layers = len(self.style_layers)
     
     # tf.compat.v1.disable_eager_execution()
@@ -153,7 +165,7 @@ class Chaudron(object):
     # Accumulate content losses from all layers 
     weight_per_content_layer = 1.0 / float(self.num_content_layers)
     for target_content, comb_content in zip(content_features, content_output_features):
-      content_score += weight_per_content_layer* self.get_content_loss(comb_content[0], target_content)
+      content_score += weight_per_content_layer * self.get_content_loss(comb_content[0], target_content)
     
     style_score *= style_weight
     content_score *= content_weight
@@ -227,16 +239,14 @@ class Chaudron(object):
       opt.apply_gradients([(grads, init_image)])
       clipped = tf.clip_by_value(init_image, min_vals, max_vals)
       init_image.assign(clipped)
-      end_time = time.time() 
       
       if loss < best_loss:
         # Update best loss and best image from total loss. 
         best_loss = loss
         best_img = self.postprocess_image(init_image.numpy())
-  
-      if i % display_interval== 0:
-        start_time = time.time()
         
+      if i % display_interval== 0:
+        end_time = time.time() 
         # Use the .numpy() method to get the concrete numpy array
         plot_img = init_image.numpy()
         plot_img = self.postprocess_image(plot_img)
@@ -247,7 +257,8 @@ class Chaudron(object):
         print('Total loss: {:.4e}, ' 
               'style loss: {:.4e}, '
               'content loss: {:.4e}, '
-              'time: {:.4f}s'.format(loss, style_score, content_score, time.time() - start_time))
+              'time: {:.4f}s'.format(loss, style_score, content_score, end_time - start_time))
+        start_time = time.time()
     
     print('Total time: {:.4f}s'.format(time.time() - global_start))
     
