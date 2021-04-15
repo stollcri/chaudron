@@ -34,7 +34,7 @@ mpl.rcParams["axes.grid"] = False
 
 
 class Chaudron(object):
-    def __init__(self):
+    def __init__(self, style_layer_weights):
         self.image_size = 512
 
         # Style layer we are interested in
@@ -46,7 +46,13 @@ class Chaudron(object):
             "block5_conv1",
         ]
         self.num_style_layers = len(self.style_layers)
-        self.style_layer_weights = [1.0, 0.8, 0.5, 0.3, 0.1]
+        
+        self.style_layer_weights = []
+        for i, _l in enumerate(self.style_layers):
+            if i < len(style_layer_weights):
+                self.style_layer_weights.append(style_layer_weights[i])
+            else:
+                self.style_layer_weights.append(1.0)
 
         # Content layer where will pull our feature maps
         self.content_layers = ["block5_conv2"]
@@ -347,9 +353,9 @@ if __name__ == "__main__":
         "-l",
         "--learning-rate",
         type=float,
-        help="Training learning rate (default=0.05)",
+        help="Training learning rate (default=0.1)",
         dest="learning_rate",
-        default=0.05,
+        default=0.1,
     )
     parser.add_argument(
         "-i",
@@ -358,6 +364,14 @@ if __name__ == "__main__":
         help="The number of images to save (default=50)",
         dest="image_save_count",
         default=50,
+    )
+    parser.add_argument(
+        "--style-layer-weights",
+        type=float,
+        nargs='+',
+        help="Weights for style layers (default=[1.6, 0.8, 0.4, 0.2, 0.1])",
+        dest="style_layer_weights",
+        default=[1.6, 0.8, 0.4, 0.2, 0.1],
     )
     args = parser.parse_args()
 
@@ -374,7 +388,7 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(format="%(message)s", level=logging.WARN)
 
-    chaudron = Chaudron()
+    chaudron = Chaudron(args.style_layer_weights)
     chaudron.run_style_transfer(
         args.content_image,
         args.style_image,
