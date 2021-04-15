@@ -22,6 +22,7 @@ import tensorflow as tf
 import time
 
 from PIL import Image
+from progress.bar import FillingCirclesBar
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import layers
 from tensorflow.python.keras import losses
@@ -215,14 +216,13 @@ class Chaudron(object):
         content_path,
         style_path,
         folder,
-        num_iterations,
+        epochs,
         content_weight,
         style_weight,
+        learning_rate,
+        image_save_count,
     ):
         model = self.load_model()
-        print("===== ===== ===== ===== =====")
-        print(model.summary())
-        print("===== ===== ===== ===== =====")
         for layer in model.layers:
             layer.trainable = False
 
@@ -234,21 +234,12 @@ class Chaudron(object):
             self.gram_matrix(style_feature) for style_feature in style_features
         ]
 
-        # Set initial image
         init_image = self.load_image(content_path)
         init_image = tf.Variable(init_image, dtype=tf.float32)
-        # Create our optimizer
-        # opt = tf.train.AdamOptimizer(learning_rate=5, beta1=0.99, epsilon=1e-1)
-        # opt = tf.optimizers.Adam()
         opt = tf.optimizers.Adam(learning_rate=0.05, beta_1=0.99, epsilon=1e-1)
 
-        # For displaying intermediate images
-        iter_count = 1
-
-        # Store our best result
         best_loss, best_img = float("inf"), None
 
-        # Create a nice config
         loss_weights = (style_weight, content_weight)
         cfg = {
             "model": model,
@@ -258,8 +249,8 @@ class Chaudron(object):
             "content_features": content_features,
         }
 
-        images_to_save = min(num_iterations, 200)
-        display_interval = num_iterations / images_to_save
+        images_to_save = min(epochs, image_save_count)
+        display_interval = epochs / images_to_save
         start_time = time.time()
         global_start = time.time()
 
@@ -267,7 +258,11 @@ class Chaudron(object):
         min_vals = -norm_means
         max_vals = 255 - norm_means
 
-        for i in range(num_iterations):
+        bar = FillingCirclesBar(
+            f"Epoch {0}/{epochs} Loss: {0.0:4.2f} (content {0.0:4.2f}, style {0.0:4.2f})",
+            max=epochs,
+        )
+        for epoch in range(epochs):
             grads, all_loss = self.compute_grads(cfg)
             loss, style_score, content_score = all_loss
             opt.apply_gradients([(grads, init_image)])
@@ -275,29 +270,26 @@ class Chaudron(object):
             init_image.assign(clipped)
 
             if loss < best_loss:
-                # Update best loss and best image from total loss.
                 best_loss = loss
                 best_img = self.postprocess_image(init_image.numpy())
 
-            if i % display_interval == 0:
-                end_time = time.time()
-                # self.save_image(init_image, f"{folder}/i{i:05d}-l{loss:4.2f}-sl{style_score:4.2f}-cl{content_score:4.2f}.png")
+            if epoch % display_interval == 0:
                 self.save_image(
                     best_img,
-                    f"{folder}/i{i:05d}-l{best_loss:4.2f}-sl{style_score:4.2f}-cl{content_score:4.2f}.png",
+                    f"{folder}/e{epoch:05d}-l{best_loss:4.2f}-sl{style_score:4.2f}-cl{content_score:4.2f}.png",
                 )
-                print("Iteration: {}".format(i))
-                print(
-                    "Total loss: {:.4e}, "
-                    "style loss: {:.4e}, "
-                    "content loss: {:.4e}, "
-                    "time: {:.4f}s".format(
-                        loss, style_score, content_score, end_time - start_time
-                    )
-                )
-                start_time = time.time()
 
-        print("Total time: {:.4f}s".format(time.time() - global_start))
+            bar.message = (
+                f"Epoch {epoch}/{epochs}"
+                f" Loss: {loss:4.2f}"
+                f" (style {style_score:4.2f}"
+                f" content {content_score:4.2f})"
+                f" {(time.time() - start_time):.2f}s"
+            )
+            start_time = time.time()
+            bar.next()
+        bar.finish()
+        logging.info("Total time: {:.4f}s".format(time.time() - global_start))
 
         return best_img, best_loss
 
@@ -328,12 +320,12 @@ if __name__ == "__main__":
         "-v", "--verbose", help="verbose output", dest="verbose", action="store_true"
     )
     parser.add_argument(
-        "-i",
-        "--iterations",
+        "-e",
+        "--epochs",
         type=int,
-        help="The number of iterations to train (default=50000)",
-        dest="iterations",
-        default=50000,
+        help="The number of epochs to train (default=50000)",
+        dest="epochs",
+        default=5000,
     )
     parser.add_argument(
         "-c",
@@ -351,6 +343,22 @@ if __name__ == "__main__":
         dest="style_weight",
         default=0.01,
     )
+    parser.add_argument(
+        "-l",
+        "--learning-rate",
+        type=float,
+        help="Training learning rate (default=0.05)",
+        dest="learning_rate",
+        default=0.05,
+    )
+    parser.add_argument(
+        "-i",
+        "--image-save-count",
+        type=int,
+        help="The number of images to save (default=50)",
+        dest="image_save_count",
+        default=50,
+    )
     args = parser.parse_args()
 
     if (
@@ -362,16 +370,18 @@ if __name__ == "__main__":
         exit()
 
     if args.verbose:
-        logging.basicConfig(format="%(message)s", level=logging.DEBUG)
-    else:
         logging.basicConfig(format="%(message)s", level=logging.INFO)
+    else:
+        logging.basicConfig(format="%(message)s", level=logging.WARN)
 
     chaudron = Chaudron()
     chaudron.run_style_transfer(
         args.content_image,
         args.style_image,
         args.target_dir,
-        args.iterations,
+        args.epochs,
         args.content_weight,
         args.style_weight,
+        args.learning_rate,
+        args.image_save_count,
     )

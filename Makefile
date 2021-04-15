@@ -6,7 +6,7 @@ gen:
 	./transfer_texture.py \
 	./images/canvas/ROLL_16_IMG_9387_POS.jpg \
 	./images/texture/The_Great_Wave_off_Kanagawa.jpg \
-	./wip-img/a
+	./wip-img/a -v --learning-rate 5.0
 	
 	# ./transfer_texture.py \
 	# ./images/canvas/ROLL_16_IMG_9387_POS.jpg \
