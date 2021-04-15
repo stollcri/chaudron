@@ -35,14 +35,14 @@ class Chaudron(object):
   def __init__(self):
     self.image_size = 512
     
+    # Style layer we are interested in
+    self.style_layers = ['block1_conv1', 'block2_conv1', 'block3_conv1', 'block4_conv1', 'block5_conv1']
+    self.num_style_layers = len(self.style_layers)
+    self.style_layer_weights = [1.0, 0.8, 0.5, 0.3, 0.1]
+    
     # Content layer where will pull our feature maps
     self.content_layers = ['block5_conv2'] 
     self.num_content_layers = len(self.content_layers)
-    
-    # Style layer we are interested in
-    # self.style_layers = ['block1_conv1', 'block2_conv1', 'block3_conv1', 'block4_conv1', 'block5_conv1']
-    self.style_layers = ['block1_conv2', 'block2_conv2', 'block3_conv4', 'block4_conv4', 'block5_conv1']
-    self.num_style_layers = len(self.style_layers)
     
     # tf.compat.v1.disable_eager_execution()
     logging.info("Eager execution: {}".format(tf.executing_eagerly()))
@@ -56,20 +56,10 @@ class Chaudron(object):
     image = np.expand_dims(image, axis=0)
     return image
     
-  # def image_show(self, image, title=None):
-  #   # Remove the batch dimension
-  #   out = np.squeeze(image, axis=0)
-  #   # Normalize for display 
-  #   out = out.astype('uint8')
-  #   plt.imshow(out)
-  #   if title is not None:
-  #     plt.title(title)
-  #   plt.imshow(out)
-  
   def load_image(self, image_file_name):
-    img = self.load_image_file(image_file_name)
-    img = tf.keras.applications.vgg19.preprocess_input(img)
-    return img
+    image = self.load_image_file(image_file_name)
+    image = tf.keras.applications.vgg19.preprocess_input(image)
+    return image
   
   def postprocess_image(self, processed_image):
     image = processed_image.copy()
@@ -90,9 +80,13 @@ class Chaudron(object):
     
     return image
   
+  def save_image(self, image, file_name)  :
+    img = Image.fromarray(image)
+    img.save(file_name)
+  
   def load_model(self):
     # Load VGG pretrained imagenet data
-    vgg = tf.keras.applications.vgg19.VGG19(include_top=False, weights='imagenet')
+    vgg = tf.keras.applications.vgg19.VGG19(include_top=False, weights='imagenet', pooling='avg')
     vgg.trainable = False
     # Get output layers corresponding to style and content layers 
     style_outputs = [vgg.get_layer(name).output for name in self.style_layers]
@@ -157,19 +151,27 @@ class Chaudron(object):
     content_score = 0
   
     # Accumulate style losses from all layers
-    # Here, we equally weight each contribution of each loss layer
-    weight_per_style_layer = 1.0 / float(self.num_style_layers)
-    for target_style, comb_style in zip(gram_style_features, style_output_features):
-      style_score += weight_per_style_layer * self.get_style_loss(comb_style[0], target_style)
+    for i, (target_style, comb_style) in enumerate(zip(gram_style_features, style_output_features)):
+      style_score += self.style_layer_weights[i] * self.get_style_loss(comb_style[0], target_style) 
+      # print(f"style_score {style_score}")
       
     # Accumulate content losses from all layers 
-    weight_per_content_layer = 1.0 / float(self.num_content_layers)
     for target_content, comb_content in zip(content_features, content_output_features):
-      content_score += weight_per_content_layer * self.get_content_loss(comb_content[0], target_content)
+      content_score += self.get_content_loss(comb_content[0], target_content)
+      # print(f"content_score {content_score}")
+    
+    style_score /= self.num_style_layers
+    content_score /= self.num_content_layers
+    # print("------")
+    # print(f"style_score {style_score}")
+    # print(f"content_score {content_score}")
     
     style_score *= style_weight
     content_score *= content_weight
-  
+    # print(f"style_score {style_score}")
+    # print(f"content_score {content_score}")
+    # print()
+    
     # Get total loss
     loss = style_score + content_score 
     return loss, style_score, content_score
@@ -177,16 +179,11 @@ class Chaudron(object):
   def compute_grads(self, cfg):
     with tf.GradientTape() as tape: 
       all_loss = self.compute_loss(**cfg)
-    # Compute gradients wrt input image
-    total_loss = all_loss[0]
-    return tape.gradient(total_loss, cfg['init_image']), all_loss
+      # Compute gradients wrt input image
+      total_loss = all_loss[0]
+      return tape.gradient(total_loss, cfg['init_image']), all_loss
       
-  def run_style_transfer(self, content_path, 
-                         style_path,
-                         folder='wip-img',
-                         num_iterations=50000,
-                         content_weight=1e3, 
-                         style_weight=1e-2): 
+  def run_style_transfer(self, content_path,  style_path, folder, num_iterations, content_weight, style_weight): 
     model = self.load_model()
     print("===== ===== ===== ===== =====")
     print(model.summary())
@@ -203,7 +200,8 @@ class Chaudron(object):
     init_image = tf.Variable(init_image, dtype=tf.float32)
     # Create our optimizer
     # opt = tf.train.AdamOptimizer(learning_rate=5, beta1=0.99, epsilon=1e-1)
-    opt = tf.optimizers.Adam()
+    # opt = tf.optimizers.Adam()
+    opt = tf.optimizers.Adam(learning_rate=0.05, beta_1=0.99, epsilon=1e-1)
   
     # For displaying intermediate images 
     iter_count = 1
@@ -221,10 +219,8 @@ class Chaudron(object):
         'content_features': content_features
     }
       
-    # For displaying
-    num_rows = 5
-    num_cols = 5
-    display_interval = num_iterations / (num_rows * num_cols)
+    images_to_save = min(num_iterations, 200)
+    display_interval = num_iterations / images_to_save
     start_time = time.time()
     global_start = time.time()
     
@@ -232,7 +228,6 @@ class Chaudron(object):
     min_vals = -norm_means
     max_vals = 255 - norm_means   
     
-    imgs = []
     for i in range(num_iterations):
       grads, all_loss = self.compute_grads(cfg)
       loss, style_score, content_score = all_loss
@@ -246,13 +241,9 @@ class Chaudron(object):
         best_img = self.postprocess_image(init_image.numpy())
         
       if i % display_interval== 0:
-        end_time = time.time() 
-        # Use the .numpy() method to get the concrete numpy array
-        plot_img = init_image.numpy()
-        plot_img = self.postprocess_image(plot_img)
-        imgs.append(plot_img)
-        img = Image.fromarray(plot_img)
-        img.save(f"{folder}/i{i:05d}-l{loss:4.2f}-sl{style_score:4.2f}-cl{content_score:4.2f}.png")
+        end_time = time.time()
+        # self.save_image(init_image, f"{folder}/i{i:05d}-l{loss:4.2f}-sl{style_score:4.2f}-cl{content_score:4.2f}.png")
+        self.save_image(best_img, f"{folder}/i{i:05d}-l{best_loss:4.2f}-sl{style_score:4.2f}-cl{content_score:4.2f}.png")
         print('Iteration: {}'.format(i))        
         print('Total loss: {:.4e}, ' 
               'style loss: {:.4e}, '
@@ -261,16 +252,6 @@ class Chaudron(object):
         start_time = time.time()
     
     print('Total time: {:.4f}s'.format(time.time() - global_start))
-    
-    plt.figure(figsize=(10,10))
-    for i, img in enumerate(imgs):
-      plt.subplot(num_rows, num_cols, i+1)
-      plt.imshow(img)
-      plt.xticks([])
-      plt.yticks([])
-    composite_img = os.path.join(folder, 'composite.jpg')
-    plt.savefig(composite_img)
-    plt.close()
         
     return best_img, best_loss
 	
@@ -279,27 +260,45 @@ if __name__ == "__main__":
         description="Generate images using Deep Convolutional Generative Adversarial Network"
     )
     parser.add_argument(
-        "-c",
-        "--content-image",
+        metavar="CONTENT_IMAGE",
         help="Content image (to be styled)",
         dest="content_image",
         default=None,
     )
     parser.add_argument(
-        "-s",
-        "--style-image",
+        metavar="STYLE_IMAGE",
         help="Style image (to extract style from)",
         dest="style_image",
         default=None,
     )
     parser.add_argument(
-        "-t",
-        "--target-dir",
+        metavar="TARGET_DIR",
         help="Directory of resulting images",
         dest="target_dir",
         default=None,
     )
     parser.add_argument("-v", "--verbose", help="verbose output", dest="verbose", action="store_true")
+    parser.add_argument(
+        "-i", "--iterations",
+        type=int,
+        help="The number of iterations to train (default=50000)",
+        dest="iterations",
+        default=50000,
+    )
+    parser.add_argument(
+        "-c", "--content-weight",
+        type=float,
+        help="Weight to use for content (default=1000.0)",
+        dest="content_weight",
+        default=1000.0,
+    )
+    parser.add_argument(
+        "-s", "--style-weight",
+        type=float,
+        help="Weight to use for style (default=0.01)",
+        dest="style_weight",
+        default=0.01,
+    )
     args = parser.parse_args()
 
     if args.content_image is None or args.style_image is None or args.target_dir is None:
@@ -312,4 +311,11 @@ if __name__ == "__main__":
         logging.basicConfig(format="%(message)s", level=logging.INFO)
     
     chaudron = Chaudron()
-    best_img, best_loss = chaudron.run_style_transfer(args.content_image, args.style_image, args.target_dir)
+    chaudron.run_style_transfer(
+      args.content_image,
+      args.style_image,
+      args.target_dir,
+      args.iterations,
+      args.content_weight,
+      args.style_weight,
+    )

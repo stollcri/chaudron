@@ -8,12 +8,3 @@ wip-img/b/*
 
 wip-img/c/*
 !wip-img/c/.gitkeep
-
-wip-img/d/*
-!wip-img/d/.gitkeep
-
-wip-img/e/*
-!wip-img/e/.gitkeep
-
-wip-img/f/*
-!wip-img/f/.gitkeep
