@@ -39,20 +39,26 @@ class Chaudron(object):
 
         # Style layer we are interested in
         self.style_layers = [
-            "block1_conv1",
+            "block1_conv2",
             "block2_conv1",
+            "block2_conv2",
             "block3_conv1",
+            "block3_conv2",
+            "block3_conv3",
+            "block3_conv4",
             "block4_conv1",
-            "block5_conv1",
+            "block4_conv2",
+            "block4_conv3",
         ]
         self.num_style_layers = len(self.style_layers)
         
         self.style_layer_weights = []
-        for i, _l in enumerate(self.style_layers):
+        for i, l in enumerate(self.style_layers):
             if i < len(style_layer_weights):
                 self.style_layer_weights.append(style_layer_weights[i])
             else:
                 self.style_layer_weights.append(1.0)
+            logging.info(f"Weight for {l} is {self.style_layer_weights[-1]}")
 
         # Content layer where will pull our feature maps
         self.content_layers = ["block5_conv2"]
@@ -371,7 +377,7 @@ if __name__ == "__main__":
         nargs='+',
         help="Weights for style layers (default=[1.6, 0.8, 0.4, 0.2, 0.1])",
         dest="style_layer_weights",
-        default=[1.6, 0.8, 0.4, 0.2, 0.1],
+        default=[12.8, 6.4, 3.2, 1.6, 0.8, 0.4, 0.2, 1.6, 3.2, 6.4],
     )
     args = parser.parse_args()
 
